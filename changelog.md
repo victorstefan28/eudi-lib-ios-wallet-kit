@@ -1,3 +1,101 @@
+## v0.11.4
+- Update eudi-lib-ios-siop-openid4vp-swift package dependency to version 0.12.0
+- Supports openid4vp draft 24
+
+## v0.11.3
+- Display "Unidentified Relying Party" when reader authentication is disabled.
+- Fix transactions log for verifications with DCQL queries
+
+## v0.11.2
+- Update eudi-lib-ios-siop-openid4vp-swift package dependency to version 0.11.0
+- DCQL query language support 
+
+## v0.11.1
+- Package updates
+
+## v0.11.0
+- Bug fixes
+
+## v0.10.9
+- Updated eudi-lib-ios-siop-openid4vp-swift library to (v0.10.1)[https://github.com/eu-digital-identity-wallet/eudi-lib-ios-siop-openid4vp-swift/releases/tag/v0.10.1]
+- Updated eudi-lib-ios-statium-swift library to (v0.2.0)[https://github.com/eu-digital-identity-wallet/eudi-lib-ios-statium-swift/releases/tag/v0.2.0]
+- Add Sendable conformance to TransactionLogData and PresentationLogData structs.
+
+## v0.10.8
+- Modified BLE data transfer initialisation to ensure BLE powered on before advertising UUID service and presenting QR code
+
+## v0.10.7
+### Document Status Checks
+- Integration with `eudi-lib-ios-statium-swift` library for document status checks (Token Status List Specification [draft 10](https://www.ietf.org/archive/id/draft-ietf-oauth-status-list-10.html))
+- Added `public func getDocumentStatus(for statusIdentifier: StatusIdentifier) async throws -> CredentialStatus` method to `EudiWallet` class.
+```swift
+for m in wallet.storage.docModels {
+	guard let st = m.statusIdentifier else { continue }
+	let status = try? await wallet.getDocumentStatus(for: st)
+	// mark document according to its status as active or revoked, etc...
+}
+
+
+## v0.10.6
+### OpenID4VCI - Draft 15
+- Updated OpenID4VCI library to version [0.13.0](https://github.com/eu-digital-identity-wallet/eudi-lib-ios-openid4vci-swift/releases/tag/v0.13.0)
+- Issuing functions updated to work with OpenID4VCI - Draft 15
+
+### Transaction logging
+- To log the transaction data, provide an implementation of the `TransactionLogger` protocol:
+```swift
+public actor DbTransactionLogger: TransactionLogger {
+	public func log(transaction: TransactionLog) async throws {
+		// Implement your logging logic here
+	}
+}
+```
+
+- Set the `transactionLogger` property of the `EudiWallet` instance to a `TransactionLogger` implementation instance:
+```swift
+wallet.transactionLogger = DbTransactionLogger()
+```
+- To display presented documents for a transaction, use the `parseTransactionLog` function of the `EudiWallet` instance:
+```swift
+let presentationData = await wallet.parseTransactionLog(transaction)
+```
+
+## v0.10.5
+- Updated OpenID4VP library to version [v0.9.0](https://github.com/eu-digital-identity-wallet/eudi-lib-ios-siop-openid4vp-swift/releases/tag/v0.9.0)
+- Updated OpenID4VCI library to version [0.12.3](https://github.com/eu-digital-identity-wallet/eudi-lib-ios-openid4vci-swift/releases/tag/v0.12.3)
+
+## v0.10.4
+- Support transaction data for OpenID4VP
+- Fix issue #162 
+- Fix issue #163
+
+## v0.10.3
+- Removed `vct` from `docClaims` collection. 
+
+## v0.10.2
+- Simplified OpenID4VCI configuration
+```swift
+wallet = try! EudiWallet(serviceName: Self.serviceName, trustedReaderCertificates: certs, 
+  openID4VciConfig: OpenId4VCIConfiguration(useDPoP: true), logFileName: "temp.txt", secureAreas: [mySecureArea])
+```
+
+## v0.10.1
+- OpenID4VP Draft 23 support
+
+## v0.10.0
+- Fix nil DocClaim issue for request-items
+
+## v0.9.9
+- `DocPresentInfo` struct members public
+- `DocClaim`: added property `path: [String]` to store the path of the claim in the document
+
+## v0.9.8
+ - sdJwt nested elements presentation
+ - `DocElementsViewModel` replaced with `enum DocElements`
+
+## v0.9.6
+- OfferedIssuanceModel: Change the issuerName property to represent a friendly name instead of a URL and add a new issuerLogoUrl property
+
 ## v0.9.5
 - Updated `eudi-lib-ios-openid4vci-swift` library to version [v0.12.0](https://github.com/eu-digital-identity-wallet/eudi-lib-ios-openid4vci-swift/releases/tag/v0.12.0)
 - `openID4VciConfig` now accepts a `DPoPConstructorType`.
