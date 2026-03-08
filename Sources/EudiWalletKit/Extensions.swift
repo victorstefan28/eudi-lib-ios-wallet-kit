@@ -22,6 +22,8 @@ import MdocSecurity18013
 import WalletStorage
 import SwiftCBOR
 import SwiftyJSON
+import JOSESwift
+import struct eudi_lib_sdjwt_swift.ClaimPath
 import eudi_lib_sdjwt_swift
 
 extension String {
@@ -118,12 +120,11 @@ extension WalletStorage.Document {
 extension MdocDataModel18013.CoseKeyPrivate {
   // decode private key data cbor string and save private key in key chain
 	public static func from(base64: String) async -> MdocDataModel18013.CoseKeyPrivate? {
-		guard let d = Data(base64Encoded: base64), let obj = try? CBOR.decode([UInt8](d)), let coseKey = CoseKey(cbor: obj), let cd = obj[-4], case let CBOR.byteString(rd) = cd else { return nil }
+		guard let d = Data(base64Encoded: base64), let obj = try? CBOR.decode([UInt8](d)), let coseKey = try? CoseKey(cbor: obj), let cd = obj[-4], case let CBOR.byteString(rd) = cd else { return nil }
 		let storage = await SecureAreaRegistry.shared.defaultSecurityArea!.getStorage()
-		let sampleSA = SampleDataSecureArea.create(storage: storage)
 		let keyData = NSMutableData(bytes: [0x04], length: [0x04].count)
 		keyData.append(Data(coseKey.x)); keyData.append(Data(coseKey.y));	keyData.append(Data(rd))
-		sampleSA.x963Key = keyData as Data
+		let sampleSA = SampleDataSecureArea(storage: storage, x963Key: keyData as Data)
 		let res = MdocDataModel18013.CoseKeyPrivate(secureArea: sampleSA)
 		return res
 	}
@@ -194,11 +195,30 @@ extension DocMetadata {
 	}
 }
 
+extension DocKeyInfo {
+	static var `default`: Self { DocKeyInfo(secureAreaName: SoftwareSecureArea.name, batchSize: 1, credentialPolicy: .rotateUse) }
+}
+
+extension IssueRequest {
+	var dpopKeyId: String { id + "_dpop" }
+}
+
+extension URL {
+	func getBaseUrl() -> String {
+		var urlString = scheme! + "://" + host!
+		if let port = port { urlString += ":\(port)" }
+		return urlString
+	}
+}
+
 extension JSON {
 	func getDataValue(name: String) -> (DocDataValue, String)? {
 		switch type {
 		case .number:
-			if name == "sex", let isex = Int(stringValue), isex <= 2 { return (.string(NSLocalizedString(isex == 1 ? "male" : "female", comment: "")), stringValue) }
+			if name == "sex", let isex = Int(stringValue), isex >= 0, isex <= 2 {
+				let locSexValue = NSLocalizedString(isex == 1 ? "male" : "female", comment: "")
+				return (.string(locSexValue), locSexValue)
+			}
 			if name == JWTClaimNames.issuedAt || name == JWTClaimNames.expirationTime {
 				let date = Date(timeIntervalSince1970: TimeInterval(intValue))
 				let isoDateStr = ISO8601DateFormatter().string(from: date)
@@ -207,6 +227,10 @@ extension JSON {
 			return (.integer(UInt64(intValue)), stringValue)
 		case .string:
 			if name == "portrait" || name == "signature_usual_mark", let d = Data(base64urlEncoded: stringValue) { return (.bytes(d.bytes), "\(d.count) bytes") }
+			if name == "sex", let isex = Int(stringValue), isex >= 0, isex <= 2 {
+				let locSexValue = NSLocalizedString(isex == 1 ? "male" : "female", comment: "")
+				return (.string(locSexValue), locSexValue)
+			}
 			return (.string(stringValue), stringValue)
 		case .bool: return (.boolean(boolValue), boolValue ? "Y" : "N")
 		case .array: return (.array, stringValue)
@@ -233,7 +257,7 @@ extension JSON {
 			var a = [DocClaim]()
 			for (n,(key,subJson)) in enumerated() {
 				let isArray = type == .array
-				let n2 = if isArray { "" } else { key }
+				let n2 = if isArray { String(n) } else { key }
 				let cmd = claimMetadata?.convertToJsonClaimMetadata(uiCulture, keyPrefix: pathPrefix)
 				if let di = subJson.toDocClaim(n2, order: n, pathPrefix: pathPrefix, claimMetadata, uiCulture, cmd?.displayNames[key], cmd?.mandatory[key]) {
 					a.append(di)
@@ -259,16 +283,75 @@ extension JSON {
 			let stringValue = self[Keys.sdAlg.rawValue].stringValue
 			let algorithIdentifier = HashingAlgorithmIdentifier.allCases.first(where: {$0.rawValue == stringValue})
 			guard let algorithIdentifier else {
-				throw SDJWTVerifierError.missingOrUnknownHashingAlgorithm
+				return "sha-256"
 			}
 			return algorithIdentifier.rawValue
 		} else {
-			throw SDJWTVerifierError.missingOrUnknownHashingAlgorithm
+			return "sha-256"
 		}
 	}
 }
 
+extension IdentityAndAccessManagementMetadata {
+  public var clientAttestationPopSigningAlgValuesSupported: [JWSAlgorithm]? {
+    switch self {
+    case .oidc(let metaData):
+      return metaData.clientAttestationPopSigningAlgValuesSupported?.map { JWSAlgorithm(name: $0) }
+    case .oauth(let metaData):
+      return metaData.clientAttestationPopSigningAlgValuesSupported?.map { JWSAlgorithm(name: $0) }
+    }
+  }
+}
+
+extension ECPublicKey: @retroactive @unchecked Sendable {}
+
+extension CoseEcCurve {
+	init?(crvName: String) {
+		switch crvName {
+		case "P-256": self = .P256
+		case "P-384": self = .P384
+		case "P-512": self = .P521
+		default: return nil
+		}
+	}
+}
+
+extension BindingKey {
+
+  static func createSigner(with header: JWSHeader, and payload: Payload, for privateKey: SigningKeyProxy, and signatureAlgorithm: SignatureAlgorithm) async throws -> Signer {
+    if case let .secKey(secKey) = privateKey, let secKeySigner = Signer(signatureAlgorithm: signatureAlgorithm, key: secKey) {
+      return secKeySigner
+    } else if case let .custom(customAsyncSigner) = privateKey {
+      let headerData = header as DataConvertible
+      let signature = try await customAsyncSigner.signAsync(headerData.data(), payload.data())
+      let customSigner = PrecomputedSigner(signature: signature, algorithm: signatureAlgorithm)
+      return Signer(customSigner: customSigner)
+    } else {
+      throw ValidationError.error(reason: "Unable to create JWS signer")
+    }
+  }
+}
+
+class PrecomputedSigner: JOSESwift.SignerProtocol {
+  var algorithm: JOSESwift.SignatureAlgorithm
+  let signature: Data
+
+  init(signature: Data, algorithm: JOSESwift.SignatureAlgorithm) {
+    self.algorithm = algorithm
+    self.signature = signature
+  }
+
+  func sign(_ signingInput: Data) throws -> Data {
+    return signature
+  }
+}
 
 
-
-
+extension DocClaim {
+	var claimPath: ClaimPath {
+		ClaimPath(path.map { if let index = Int($0) { ClaimPathElement.arrayElement(index: index) } else if $0.isEmpty { ClaimPathElement.allArrayElements } else { ClaimPathElement.claim(name: $0) } })
+	}
+	var claimPaths: [ClaimPath] {
+		if let children { children.map(\.claimPath) } else { [claimPath] }
+	}
+}

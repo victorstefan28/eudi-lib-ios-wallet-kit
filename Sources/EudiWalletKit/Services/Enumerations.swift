@@ -23,7 +23,6 @@ import WalletStorage
 
 /// Data exchange flow type
 public enum FlowType: Codable, Hashable, Sendable {
-
 	case ble
 	case openid4vp(qrCode: Data)
 	case other
@@ -39,3 +38,7 @@ public enum DocTypedData: Sendable {
 	case sdJwt(SignedSDJWT)
 }
 
+public enum PopUsage: String, Sendable {
+	case dpop = "DPoP"
+	case clientAttestation = "Client Attestation"
+}
